@@ -1,3 +1,14 @@
+require 'rbconfig'
+if RbConfig::CONFIG['host_os'] =~ /mingw|mswin/
+  begin
+    require 'win32/open3'
+  rescue LoadError
+    raise "Run `gem install win32-open3` to be able to run specs"
+  end
+else
+  require 'open3'
+end
+
 module Spec
   module Helpers
     def reset!
