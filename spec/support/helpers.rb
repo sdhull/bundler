@@ -79,7 +79,7 @@ module Spec
     end
 
     def sys_exec(cmd, expect_err = false)
-      POpen4.popen4(cmd.to_s) do |stdout, stderr, stdin, pid|
+      Open3.popen3(cmd.to_s) do |stdin, stdout, stderr|
         yield stdin if block_given?
 
         @out = stdout.read_available_bytes.strip
