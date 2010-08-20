@@ -5,6 +5,7 @@ require 'fileutils'
 require 'rubygems'
 require 'bundler'
 require 'rspec'
+require 'popen4'
 
 Dir["#{File.expand_path('../support', __FILE__)}/*.rb"].each do |file|
   require file

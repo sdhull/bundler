@@ -79,13 +79,12 @@ module Spec
     end
 
     def sys_exec(cmd, expect_err = false)
-      require "open3"
-      @in_p, @out_p, @err_p = Open3.popen3(cmd.to_s)
+      POpen4.popen4(cmd.to_s) do |stdout, stderr, stdin, pid|
+        yield stdin if block_given?
 
-      yield @in_p if block_given?
-
-      @err = @err_p.read_available_bytes.strip
-      @out = @out_p.read_available_bytes.strip
+        @out = stdout.read_available_bytes.strip
+        @err = stderr.read_available_bytes.strip
+      end
 
       puts @err unless expect_err || @err.empty? || !$show_err
       @out
