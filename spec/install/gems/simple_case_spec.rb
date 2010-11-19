@@ -471,37 +471,28 @@ describe "bundle install with gem sources" do
       out.should include "The disable-shared-gem option is no longer available"
     end
 
-    ["install vendor/bundle", "install --path vendor/bundle"].each do |install|
-      if install == "install vendor/bundle"
-        it "displays the deprecation warning for path as an argument to install" do
-          bundle install
-          out.should include("The path argument to `bundle install` is deprecated.")
-        end
-      end
+    it "does not use available system gems with bundle --path vendor/bundle" do
+      bundle "install --path vendor/bundle"
+      should_be_installed "rack 1.0.0"
+    end
 
-      it "does not use available system gems with bundle #{install}" do
-        bundle install
-        should_be_installed "rack 1.0.0"
-      end
+    it "prints a warning to let the user know what has happened with bundle --path vendor/bundle" do
+      bundle "install --path vendor/bundle"
+      out.should include("It was installed into ./vendor")
+    end
 
-      it "prints a warning to let the user know what has happened with bundle #{install}" do
-        bundle install
-        out.should include("It was installed into ./vendor")
-      end
+    it "disallows --path vendor/bundle --system" do
+      bundle "install --path vendor/bundle --system"
+      out.should include("Please choose.")
+    end
 
-      it "disallows #{install} --system" do
-        bundle "#{install} --system"
-        out.should include("Please choose.")
-      end
+    it "remembers to disable system gems after the first time with bundle --path vendor/bundle" do
+      bundle "install --path vendor/bundle"
+      FileUtils.rm_rf bundled_app('vendor')
+      bundle "install"
 
-      it "remembers to disable system gems after the first time with bundle #{install}" do
-        bundle install
-        FileUtils.rm_rf bundled_app('vendor')
-        bundle "install"
-
-        vendored_gems('gems/rack-1.0.0').should be_directory
-        should_be_installed "rack 1.0.0"
-      end
+      vendored_gems('gems/rack-1.0.0').should be_directory
+      should_be_installed "rack 1.0.0"
     end
   end
 
@@ -544,35 +535,6 @@ describe "bundle install with gem sources" do
       G
       bundle :install
       err.should be_empty
-    end
-  end
-
-  describe "when the gem has an architecture in its platform" do
-    it "still installs correctly" do
-      simulate_platform mswin
-
-      gemfile <<-G
-        # Set up pretend http gem server with FakeWeb
-        $LOAD_PATH.unshift '#{Dir[base_system_gems.join("gems/fakeweb*/lib")].first}'
-        require 'fakeweb'
-        FakeWeb.allow_net_connect = false
-        files = [ 'specs.4.8.gz',
-                  'prerelease_specs.4.8.gz',
-                  'quick/Marshal.4.8/rcov-1.0-mswin32.gemspec.rz',
-                  'gems/rcov-1.0-mswin32.gem' ]
-        files.each do |file|
-          FakeWeb.register_uri(:get, "http://localgemserver.com/\#{file}",
-            :body => File.read("#{gem_repo1}/\#{file}"))
-        end
-        FakeWeb.register_uri(:get, "http://localgemserver.com/gems/rcov-1.0-x86-mswin32.gem",
-          :status => ["404", "Not Found"])
-
-        # Try to install gem with nil arch
-        source "http://localgemserver.com/"
-        gem "rcov"
-      G
-      bundle :install
-      should_be_installed "rcov 1.0.0"
     end
   end
 

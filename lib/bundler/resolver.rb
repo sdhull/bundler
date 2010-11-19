@@ -21,10 +21,7 @@ end
 
 module Bundler
   class Resolver
-    ALL = [ Gem::Platform::RUBY,
-            Gem::Platform::JAVA,
-            Gem::Platform::MSWIN,
-            Gem::Platform::MINGW ]
+    ALL = Bundler::Dependency::PLATFORM_MAP.values.uniq.freeze
 
     class SpecGroup < Array
       include GemHelpers
@@ -140,6 +137,7 @@ module Bundler
       @stack                = []
       @base                 = base
       @index                = index
+      @gems_size            = {}
       @missing_gems         = Hash.new(0)
       @source_requirements  = source_requirements
     end
@@ -178,7 +176,7 @@ module Bundler
         [ activated[a.name] ? 0 : 1,
           a.requirement.prerelease? ? 0 : 1,
           @errors[a.name]   ? 0 : 1,
-          activated[a.name] ? 0 : search(a).size ]
+          activated[a.name] ? 0 : gems_size(a) ]
       end
 
       debug { "Activated:\n" + activated.values.map { |a| "  #{a.name} (#{a.version})" }.join("\n") }
@@ -233,7 +231,8 @@ module Bundler
           # to keep a list of every spot a failure happened.
           if parent && parent.name != 'bundler'
             debug { "    -> Jumping to: #{parent.name}" }
-            throw parent.name, existing.respond_to?(:required_by) && existing.required_by.last && existing.required_by.last.name
+            required_by = existing.respond_to?(:required_by) && existing.required_by.last
+            throw parent.name, required_by && required_by.name
           else
             # The original set of dependencies conflict with the base set of specs
             # passed to the resolver. This is by definition an impossible resolve.
@@ -349,6 +348,10 @@ module Bundler
       # block.
       @stack.slice!(length..-1)
       retval
+    end
+
+    def gems_size(dep)
+      @gems_size[dep] ||= search(dep).size
     end
 
     def search(dep)

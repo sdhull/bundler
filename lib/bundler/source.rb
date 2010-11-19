@@ -14,10 +14,11 @@ module Bundler
       def initialize(options = {})
         @options = options
         @remotes = (options["remotes"] || []).map { |r| normalize_uri(r) }
+        @fetchers = {}
         @allow_remote = false
         @allow_cached = false
-        # Hardcode the paths for now
-        @caches = [ Bundler.app_cache ] + Gem.path.map { |p| File.expand_path("#{p}/cache") }
+
+        @caches = [ Bundler.app_cache ] + Gem.path.map{ |p| File.expand_path("#{p}/cache") }
         @spec_fetch_map = {}
       end
 
@@ -39,12 +40,6 @@ module Bundler
 
       alias == eql?
 
-      # Not really needed, but it seems good to implement this method for interface
-      # consistency. Source name is mostly used to identify Path & Git sources
-      def name
-        ":gems"
-      end
-
       def options
         { "remotes" => @remotes.map { |r| r.to_s } }
       end
@@ -62,12 +57,13 @@ module Bundler
       end
 
       def to_s
-        remotes = self.remotes.map { |r| r.to_s }.join(', ')
-        "rubygems repository #{remotes}"
+        remote_names = self.remotes.map { |r| r.to_s }.join(', ')
+        "rubygems repository #{remote_names}"
       end
+      alias_method :name, :to_s
 
-      def specs
-        @specs ||= fetch_specs
+      def specs(dependencies = nil)
+        @specs ||= fetch_specs(dependencies)
       end
 
       def fetch(spec)
@@ -151,11 +147,11 @@ module Bundler
         uri
       end
 
-      def fetch_specs
+      def fetch_specs(dependencies = nil)
         Index.build do |idx|
           idx.use installed_specs
           idx.use cached_specs if @allow_cached || @allow_remote
-          idx.use remote_specs if @allow_remote
+          idx.use remote_specs(dependencies) if @allow_remote
         end
       end
 
@@ -163,7 +159,7 @@ module Bundler
         @installed_specs ||= begin
           idx = Index.new
           have_bundler = false
-          Gem::SourceIndex.from_installed_gems.to_a.reverse.each do |dont_use_this_var, spec|
+          Gem.source_index.to_a.reverse.each do |dont_use_this_var, spec|
             next if spec.name == 'bundler' && spec.version.to_s != VERSION
             have_bundler = true if spec.name == 'bundler'
             spec.source = self
@@ -190,31 +186,43 @@ module Bundler
 
       def cached_specs
         @cached_specs ||= begin
-          idx = Index.new
-          @caches.each do |path|
-            Dir["#{path}/*.gem"].each do |gemfile|
-              next if name == 'bundler'
-              s = Gem::Format.from_file_by_path(gemfile).spec
-              s.source = self
-              idx << s
+          idx = installed_specs.dup
+
+          path = Bundler.app_cache
+          Dir["#{path}/*.gem"].each do |gemfile|
+            next if gemfile =~ /bundler\-[\d\.]+?\.gem/
+
+            begin
+              s ||= Gem::Format.from_file_by_path(gemfile).spec
+            rescue Gem::Package::FormatError
+              raise GemspecError, "Could not read gem at #{gemfile}. It may be corrupted."
             end
+
+            s.source = self
+            idx << s
           end
-          idx
         end
+
+        idx
       end
 
-      def remote_specs
+      def remote_specs(dependencies = nil)
         @remote_specs ||= begin
           idx     = Index.new
           old     = Gem.sources
 
           remotes.each do |uri|
             Bundler.ui.info "Fetching source index for #{uri}"
-            Gem.sources = ["#{uri}"]
-            fetch_all_remote_specs do |n,v|
+
+            @fetchers[uri] = Bundler::Fetcher.new(uri)
+            gem_names =
+              if dependencies
+                dependencies.map {|d| d.name }
+              end
+            @fetchers[uri].fetch_remote_specs(gem_names) do |n,v|
               v.each do |name, version, platform|
                 next if name == 'bundler'
-                spec = RemoteSpecification.new(name, version, platform, uri)
+                spec = RemoteSpecification.new(name, version, platform, @fetchers[uri])
                 spec.source = self
                 @spec_fetch_map[spec.full_name] = [spec, uri]
                 idx << spec
@@ -224,21 +232,6 @@ module Bundler
           idx
         ensure
           Gem.sources = old
-        end
-      end
-
-      def fetch_all_remote_specs(&blk)
-        begin
-          # Fetch all specs, minus prerelease specs
-          Gem::SpecFetcher.new.list(true, false).each(&blk)
-          # Then fetch the prerelease specs
-          begin
-            Gem::SpecFetcher.new.list(false, true).each(&blk)
-          rescue Gem::RemoteFetcher::FetchError
-            Bundler.ui.warn "Could not fetch prerelease specs from #{self}"
-          end
-        rescue Gem::RemoteFetcher::FetchError
-          Bundler.ui.warn "Could not reach #{self}"
         end
       end
 
@@ -313,7 +306,7 @@ module Bundler
 
       def eql?(o)
         o.instance_of?(Path) &&
-        path == o.path &&
+        path.expand_path(Bundler.root) == o.path.expand_path(Bundler.root) &&
         name == o.name &&
         version == o.version
       end
@@ -360,7 +353,7 @@ module Bundler
         index
       end
 
-      def local_specs
+      def local_specs(*)
         @local_specs ||= load_spec_files
       end
 
@@ -403,7 +396,7 @@ module Bundler
       alias specs local_specs
 
       def cache(spec)
-        unless path.to_s.index(Bundler.root.to_s) == 0
+        unless path.expand_path(Bundler.root).to_s.index(Bundler.root.to_s) == 0
           Bundler.ui.warn "  * #{spec.name} at `#{path}` will not be cached."
         end
       end
@@ -523,9 +516,9 @@ module Bundler
       end
 
       # TODO: actually cache git specs
-      def specs
+      def specs(*)
         if allow_git_ops? && !@update
-        # Start by making sure the git cache is up to date
+          # Start by making sure the git cache is up to date
           cache
           checkout
           @update = true

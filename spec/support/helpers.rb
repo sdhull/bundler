@@ -29,9 +29,10 @@ module Spec
     def run(cmd, *args)
       opts = args.last.is_a?(Hash) ? args.pop : {}
       expect_err = opts.delete(:expect_err)
+      env = opts.delete(:env)
       groups = args.map {|a| a.inspect }.join(", ")
       setup = "require 'rubygems' ; require 'bundler' ; Bundler.setup(#{groups})\n"
-      @out = ruby(setup + cmd, :expect_err => expect_err)
+      @out = ruby(setup + cmd, :expect_err => expect_err, :env => env)
     end
 
     def lib
@@ -43,12 +44,18 @@ module Spec
       exitstatus = options.delete(:exitstatus)
       options["no-color"] = true unless options.key?("no-color") || cmd.to_s[0..3] == "exec"
 
+      bundle_bin = File.expand_path('../../../bin/bundle', __FILE__)
+      fake_file = options.delete(:fakeweb)
+      fakeweb = fake_file ? "-r#{File.expand_path('../fakeweb/'+fake_file+'.rb', __FILE__)}" : nil
+      artifice_file = options.delete(:artifice)
+      artifice = artifice_file ? "-r#{File.expand_path('../artifice/'+artifice_file+'.rb', __FILE__)}" : nil
+
       env = (options.delete(:env) || {}).map{|k,v| "#{k}='#{v}' "}.join
       args = options.map do |k,v|
         v == true ? " --#{k}" : " --#{k} #{v}" if v
       end.join
-      gemfile = File.expand_path('../../../bin/bundle', __FILE__)
-      cmd = "#{env}#{Gem.ruby} -I#{lib} #{gemfile} #{cmd}#{args}"
+
+      cmd = "#{env}#{Gem.ruby} -I#{lib} #{fakeweb} #{artifice} #{bundle_bin} #{cmd}#{args}"
 
       if exitstatus
         sys_status(cmd)
@@ -59,8 +66,10 @@ module Spec
 
     def ruby(ruby, options = {})
       expect_err = options.delete(:expect_err)
+      env = (options.delete(:env) || {}).map{|k,v| "#{k}='#{v}' "}.join
       ruby.gsub!(/["`\$]/) {|m| "\\#{m}" }
-      sys_exec(%'#{Gem.ruby} -I#{lib} -e "#{ruby}"', expect_err)
+      lib_option = options[:no_lib] ? "" : " -I#{lib}"
+      sys_exec(%{#{env}#{Gem.ruby}#{lib_option} -e "#{ruby}"}, expect_err)
     end
 
     def gembin(cmd)

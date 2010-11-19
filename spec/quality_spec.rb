@@ -38,7 +38,7 @@ describe "The library itself" do
     error_messages = []
     Dir.chdir(File.expand_path("../..", __FILE__)) do
       `git ls-files`.split("\n").each do |filename|
-        next if filename =~ /\.gitmodules|fixtures/
+        next if filename =~ /\.gitmodules|\.marshal|fixtures|vendor/
         error_messages << check_for_tab_characters(filename)
         error_messages << check_for_extra_spaces(filename)
       end
@@ -50,6 +50,9 @@ describe "The library itself" do
     Dir.chdir(root) do
       `gem build bundler.gemspec`
       $?.should == 0
+
+      # clean up the .gem generated
+      system("rm bundler-#{Bundler::VERSION}.gem")
     end
   end
 end

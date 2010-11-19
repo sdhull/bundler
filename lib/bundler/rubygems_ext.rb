@@ -116,12 +116,26 @@ module Gem
       end
       out
     end
+
+    def matches_spec?(spec)
+      # name can be a Regexp, so use ===
+      return false unless name === spec.name
+      return true  if requirement.none?
+
+      requirement.satisfied_by?(spec.version)
+    end unless allocate.respond_to?(:matches_spec?)
+  end
+
+  class Requirement
+    def none?
+      @none ||= (to_s == ">= 0")
+    end unless allocate.respond_to?(:none?)
   end
 
   class Platform
     JAVA  = Gem::Platform.new('java')
     MSWIN = Gem::Platform.new('mswin32')
-    MINGW = Gem::Platform.new('mingw32')
+    MINGW = Gem::Platform.new('x86-mingw32')
 
     def hash
       @cpu.hash ^ @os.hash ^ @version.hash
@@ -181,7 +195,7 @@ module Bundler
 
       GENERIC_CACHE[p] ||= begin
         found = GENERICS.find do |p2|
-          p.os == p2.os if p2.is_a?(Gem::Platform)
+          p2.is_a?(Gem::Platform) && p.os == p2.os
         end
         found || Gem::Platform::RUBY
       end

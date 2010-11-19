@@ -12,6 +12,7 @@ module Bundler
   autoload :Dependency,          'bundler/dependency'
   autoload :Dsl,                 'bundler/dsl'
   autoload :Environment,         'bundler/environment'
+  autoload :Fetcher,             'bundler/fetcher'
   autoload :GemHelper,           'bundler/gem_helper'
   autoload :Graph,               'bundler/graph'
   autoload :Index,               'bundler/index'
@@ -44,9 +45,11 @@ module Bundler
   class DslError         < BundlerError; status_code(15) ; end
   class ProductionError  < BundlerError; status_code(16) ; end
   class InvalidOption    < DslError                      ; end
+  class HTTPError        < BundlerError; status_code(17) ; end
 
 
   WINDOWS = RbConfig::CONFIG["host_os"] =~ %r!(msdos|mswin|djgpp|mingw)!
+  FREEBSD = RbConfig::CONFIG["host_os"] =~ /bsd/
   NULL    = WINDOWS ? "NUL" : "/dev/null"
 
   # Internal errors, should be rescued
@@ -191,11 +194,14 @@ module Bundler
     end
 
     def requires_sudo?
+      return @requires_sudo if @checked_for_sudo
+
       path = bundle_path
       path = path.parent until path.exist?
-      sudo_present = !`which sudo 2>#{NULL}`.empty?
+      sudo_present = !(`which sudo` rescue '').empty?
 
-      settings.allow_sudo? && !File.writable?(path) && sudo_present
+      @checked_for_sudo = true
+      @requires_sudo = settings.allow_sudo? && !File.writable?(path) && sudo_present
     end
 
     def mkdir_p(path)
